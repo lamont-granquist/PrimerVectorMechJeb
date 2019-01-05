@@ -38,6 +38,8 @@ namespace MuMech
             disablePathModulesOtherThan(ascentPathIdx);
         }
 
+        public string[] ascentPathList = { "Classic Ascent Profile", "Stock-style GravityTurn™", "Primer Vector Guidance (RSS/RO)" };
+
         [Persistent(pass = (int)(Pass.Type | Pass.Global))]
         public EditableDoubleMult desiredOrbitAltitude = new EditableDoubleMult(100000, 1000);
         [Persistent(pass = (int)(Pass.Type | Pass.Global))]
@@ -378,8 +380,6 @@ namespace MuMech
         //////////////////////////////////////////////////
         // wiring for switching the different ascent types
         //////////////////////////////////////////////////
-
-        public string[] ascentPathList = { "Classic Ascent Profile", "Stock-style GravityTurn™", "Primer Vector Guidance (RSS/RO)" };
 
         public MechJebModuleAscentBase ascentPath;
         public MechJebModuleAscentMenuBase ascentMenu;

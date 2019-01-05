@@ -9,6 +9,7 @@ using System.Collections.Generic;
 
 namespace MuMech
 {
+    public enum ascentTarget { SIMPLE, SUBORBITAL };
     public class MechJebModuleAscentPVG : MechJebModuleAscentBase
     {
         public MechJebModuleAscentPVG(MechJebCore core) : base(core) { }
@@ -21,6 +22,27 @@ namespace MuMech
         public EditableDoubleMult desiredApoapsis = new EditableDoubleMult(0, 1000);
         [Persistent(pass = (int)(Pass.Type | Pass.Global))]
         public bool omitCoast = false;
+        [Persistent(pass = (int)(Pass.Type | Pass.Global))]
+        public EditableDouble flightPathAngle = 0.0;
+        [Persistent(pass = (int)(Pass.Type | Pass.Global))]
+        public EditableInt numStages = 0;
+
+        // deliberately private, do not bypass
+        [Persistent(pass = (int)(Pass.Type | Pass.Global))]
+        private int ascentTargetIdx;
+
+        // this is the public API for ascentTargetIdx which is enum type and does wiring
+        public ascentTarget ascentTargetIdxPublic {
+            get {
+                return (ascentTarget) this.ascentTargetIdx;
+            }
+            set {
+                this.ascentTargetIdx = (int) value;
+            }
+        }
+
+        public string[] ascentTargetList = { "Simple Targeting", "Suborbital Targeting" };
+
 
         private MechJebModuleAscentGuidance ascentGuidance { get { return core.GetComputerModule<MechJebModuleAscentGuidance>(); } }
 
@@ -70,14 +92,28 @@ namespace MuMech
 
         private void setTarget()
         {
-            if ( ascentGuidance.launchingToPlane && core.target.NormalTargetExists )
+            if ( ascentTargetIdxPublic == ascentTarget.SIMPLE )
             {
-                core.guidance.TargetPeInsertMatchOrbitPlane(autopilot.desiredOrbitAltitude, desiredApoapsis, core.target.TargetOrbit, omitCoast);
-                //autopilot.desiredInclination = Math.Acos(-Vector3d.Dot(-Planetarium.up, core.guidance.iy)) * UtilMath.Rad2Deg;
+                if ( ascentGuidance.launchingToPlane && core.target.NormalTargetExists )
+                {
+                    core.guidance.TargetPeInsertMatchOrbitPlane(autopilot.desiredOrbitAltitude, desiredApoapsis, core.target.TargetOrbit, omitCoast);
+                    //autopilot.desiredInclination = Math.Acos(-Vector3d.Dot(-Planetarium.up, core.guidance.iy)) * UtilMath.Rad2Deg;
+                }
+                else
+                {
+                    core.guidance.TargetPeInsertMatchInc(autopilot.desiredOrbitAltitude, desiredApoapsis, autopilot.desiredInclination, omitCoast);
+                }
             }
-            else
+            else if ( ascentTargetIdxPublic == ascentTarget.SUBORBITAL )
             {
-                core.guidance.TargetPeInsertMatchInc(autopilot.desiredOrbitAltitude, desiredApoapsis, autopilot.desiredInclination, omitCoast);
+                if ( ascentGuidance.launchingToPlane && core.target.NormalTargetExists )
+                {
+                    core.guidance.TargetSuborbitalMatchOrbitPlane(autopilot.desiredOrbitAltitude, flightPathAngle, numStages, core.target.TargetOrbit, omitCoast);
+                }
+                else
+                {
+                    core.guidance.TargetSuborbitalMatchInc(autopilot.desiredOrbitAltitude, flightPathAngle, numStages, autopilot.desiredInclination, omitCoast);
+                }
             }
         }
 

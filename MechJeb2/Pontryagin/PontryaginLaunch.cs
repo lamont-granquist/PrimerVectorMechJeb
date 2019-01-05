@@ -5,26 +5,32 @@ using UnityEngine;
 
 namespace MuMech {
     public class PontryaginLaunch : PontryaginBase {
-        public PontryaginLaunch(double mu, Vector3d r0, Vector3d v0, Vector3d pv0, Vector3d pr0, double dV) : base(mu, r0, v0, pv0, pr0, dV)
+        public PontryaginLaunch(MechJebCore core, double mu, Vector3d r0, Vector3d v0, Vector3d pv0, Vector3d pr0, double dVguess = 0, double dTguess = 0) : base(core, mu, r0, v0, pv0, pr0)
         {
+            this.dVguess = dVguess;
+            this.dTguess = dTguess;
         }
+
+        double dVguess;
+        double dTguess;
 
         public bool omitCoast;
 
         double rTm;
         double vTm;
-        double gamma;
+        double gammaT;
         double inc;
         double smaT;
+        int numStages;
         Vector3d hT;
 
         // 5-constraint PEG with fixed LAN
-        public void flightangle5constraint(double rTm, double vTm, double gamma, Vector3d hT)
+        public void flightangle5constraint(double rTm, double vTm, double gammaT, Vector3d hT)
         {
             QuaternionD rot = Quaternion.Inverse(Planetarium.fetch.rotation);
             this.rTm = rTm / r_scale;
             this.vTm = vTm / v_scale;
-            this.gamma = gamma;
+            this.gammaT = gammaT;
             this.hT = rot * hT / r_scale / v_scale;
             bcfun = flightangle5constraint;
         }
@@ -45,7 +51,7 @@ namespace MuMech {
             /* 5 constraints */
             z[0] = ( rf.magnitude * rf.magnitude - rTm * rTm ) / 2.0;
             z[1] = ( vf.magnitude * vf.magnitude - vTm * vTm ) / 2.0;
-            z[2] = Vector3d.Dot(rf, vf) - rf.magnitude * vf.magnitude * Math.Sin(gamma);
+            z[2] = Vector3d.Dot(rf, vf) - rf.magnitude * vf.magnitude * Math.Sin(gammaT);
 
             // stereographic projection onto the Riemann sphere ( hfp[1] is z-axis in KSP )
             z[3] = hfp[0] / ( 1.0 - hfp[1] );
@@ -64,14 +70,14 @@ namespace MuMech {
         }
 
         // 4-constraint PEG with free LAN
-        public void flightangle4constraint(double rTm, double vTm, double gamma, double inc)
+        public void flightangle4constraint(double rTm, double vTm, double gammaT, double inc)
         {
             //Debug.Log("call stack: + " + Environment.StackTrace);
             this.rTm = rTm / r_scale;
             this.vTm = vTm / v_scale;
             //Debug.Log("4constraint vTm = " + vTm + " v_scale = " + v_scale + " vTm_bar = " + this.vTm );
             //Debug.Log("4constraint rTm = " + rTm + " r_scale = " + r_scale + " rTm_bar = " + this.rTm );
-            this.gamma = gamma;
+            this.gammaT = gammaT;
             this.inc = inc;
             bcfun = flightangle4constraint;
         }
@@ -91,21 +97,54 @@ namespace MuMech {
             z[0] = ( rf.magnitude * rf.magnitude - rTm * rTm ) / 2.0;
             z[1] = ( vf.magnitude * vf.magnitude - vTm * vTm ) / 2.0;
             z[2] = Vector3d.Dot(n, hf) - hf.magnitude * Math.Cos(inc);
-            z[3] = Vector3d.Dot(rf, vf) - rf.magnitude * vf.magnitude * Math.Sin(gamma);
-            z[4] = rTm * rTm * ( Vector3d.Dot(vf, prf) - vTm * Math.Sin(gamma) / rTm * Vector3d.Dot(rf, prf) ) -
-                vTm * vTm * ( Vector3d.Dot(rf, pvf) - rTm * Math.Sin(gamma) / vTm * Vector3d.Dot(vf, pvf) );
+            z[3] = Vector3d.Dot(rf, vf) - rf.magnitude * vf.magnitude * Math.Sin(gammaT);
+            z[4] = rTm * rTm * ( Vector3d.Dot(vf, prf) - vTm * Math.Sin(gammaT) / rTm * Vector3d.Dot(rf, prf) ) -
+                vTm * vTm * ( Vector3d.Dot(rf, pvf) - rTm * Math.Sin(gammaT) / vTm * Vector3d.Dot(vf, pvf) );
             z[5] = Vector3d.Dot(hf, prf) * Vector3d.Dot(hf, rn) + Vector3d.Dot(hf, pvf) * Vector3d.Dot(hf, vn);
+        }
+
+        // suborbital 3-constraint with fixed burntime and maximizes velocity
+        public void suborbital3constraint(double rT, double gammaT, int numStages, double inc)
+        {
+            this.rTm = rTm / r_scale;
+            this.gammaT = gammaT;
+            this.numStages = numStages;
+            this.inc = inc;
+            bcfun = suborbital3constraint;
+        }
+
+        private void suborbital3constraint(double[] yT, double[] z)
+        {
+            Vector3d rf = new Vector3d(yT[0], yT[1], yT[2]);
+            Vector3d vf = new Vector3d(yT[3], yT[4], yT[5]);
+            Vector3d pvf = new Vector3d(yT[6], yT[7], yT[8]);
+            Vector3d prf = new Vector3d(yT[9], yT[10], yT[11]);
+
+            Vector3d n = new Vector3d(0, -1, 0);  /* angular momentum vectors point south in KSP and we're in xzy coords */
+            Vector3d rn = Vector3d.Cross(rf, n);
+            Vector3d vn = Vector3d.Cross(vf, n);
+            Vector3d hf = Vector3d.Cross(rf, vf);
+
+            z[0] = ( rf.magnitude * rf.magnitude - rTm * rTm ) / 2.0;
+            z[1] = Vector3d.Dot(n, Vector3d.Cross(rf, vf)) - Vector3d.Cross(rf, vf).magnitude * Math.Cos(inc);
+            z[2] = Vector3d.Dot(rf, vf) - rf.magnitude * vf.magnitude * Math.Sin(gammaT);
+
+            z[3] = Vector3d.Dot(vf, prf) * rf.sqrMagnitude - Vector3d.Dot(rf, pvf) * vf.sqrMagnitude
+                + Vector3d.Dot(rf, vf) * (vf.sqrMagnitude - Vector3d.Dot(rf, prf));
+            z[4] = Vector3d.Dot(vf, pvf) - vf.sqrMagnitude;
+            z[5] = Vector3d.Dot(hf, prf) * Vector3d.Dot(hf, Vector3d.Cross(rf, n))
+                + Vector3d.Dot(hf, pvf) * Vector3d.Dot(hf, Vector3d.Cross(vf, n));
         }
 
         public override void Bootstrap(double t0)
         {
             // build arcs off of ksp stages, with coasts
             List<Arc> arcs = new List<Arc>();
+            Debug.Log("STAGES BEFORE BOOTSTRAP:");
             for(int i = 0; i < stages.Count; i++)
             {
-                //if (i != 0)
-                    //arcs.Add(new Arc(new Stage(this, m0: stages[i].m0, isp: 0, thrust: 0)));
-                arcs.Add(new Arc(stages[i]));
+                Debug.Log(stages[i]);
+                arcs.Add(new Arc(this, stages[i]));
             }
 
             arcs[arcs.Count-1].infinite = true;
@@ -113,9 +152,14 @@ namespace MuMech {
             // allocate y0
             y0 = new double[arcIndex(arcs, arcs.Count)];
 
-            // update initial position and guess for first arc
-            double ve = g0 * stages[0].isp;
-            tgo = ve * stages[0].m0 / stages[0].thrust * ( 1 - Math.Exp(-dV/ve) );
+            // halfway wild guess at burntime to orbit
+            if (dVguess > 0)
+                tgo = stages[0].v_e * stages[0].startMass / stages[0].startThrust * ( 1 - Math.Exp(-dVguess/stages[0].v_e) );
+            else if (dTguess > 0)
+                tgo = dTguess;
+            else
+                tgo = 240;
+
             tgo_bar = tgo / t_scale;
 
             // initialize overall burn time
@@ -254,6 +298,16 @@ namespace MuMech {
             //Debug.Log("v_scale = " + v_scale);
             //Debug.Log("rTm = " + rTm * r_scale + " " + rTm);
             //Debug.Log("vTm = " + vTm * v_scale + " " + vTm);
+            Debug.Log("STAGES AFTER BOOTSTRAP:");
+            for(int i = 0; i < stages.Count; i++)
+            {
+                Debug.Log(stages[i]);
+            }
+            Debug.Log("ARCS AFTER BOOTSTRAP:");
+            for(int i = 0; i < arcs.Count; i++)
+            {
+                Debug.Log(arcs[i]);
+            }
         }
 
         public override void Optimize(double t0)

@@ -139,20 +139,32 @@ namespace MuMech
                 {
                     if (ascentPathIdx == ascentType.PVG)
                     {
+                        GUILayout.BeginHorizontal();
+                        pvgascent.ascentTargetIdxPublic = (ascentTarget)GuiUtils.ComboBox.Box((int)pvgascent.ascentTargetIdxPublic, pvgascent.ascentTargetList, this);
+                        GUILayout.EndHorizontal();
 
-                        GuiUtils.SimpleTextBox("Target Periapsis", autopilot.desiredOrbitAltitude, "km");
-                        GuiUtils.SimpleTextBox("Target Apoapsis:", pvgascent.desiredApoapsis, "km");
-                        if ( pvgascent.desiredApoapsis >= 0 && pvgascent.desiredApoapsis < autopilot.desiredOrbitAltitude )
+                        if ( pvgascent.ascentTargetIdxPublic == ascentTarget.SIMPLE )
                         {
-                            GUIStyle s = new GUIStyle(GUI.skin.label);
-                            s.normal.textColor = Color.yellow;
-                            GUILayout.Label("Ap < Pe: circularizing orbit", s);
+                            GuiUtils.SimpleTextBox("Target Periapsis", autopilot.desiredOrbitAltitude, "km");
+                            GuiUtils.SimpleTextBox("Target Apoapsis:", pvgascent.desiredApoapsis, "km");
+                            if ( pvgascent.desiredApoapsis >= 0 && pvgascent.desiredApoapsis < autopilot.desiredOrbitAltitude )
+                            {
+                                GUIStyle s = new GUIStyle(GUI.skin.label);
+                                s.normal.textColor = Color.yellow;
+                                GUILayout.Label("Ap < Pe: circularizing orbit", s);
+                            }
+                            if ( pvgascent.desiredApoapsis < 0 )
+                            {
+                                GUIStyle s = new GUIStyle(GUI.skin.label);
+                                s.normal.textColor = XKCDColors.Orange;
+                                GUILayout.Label("Hyperbolic target orbit (neg Ap)", s);
+                            }
                         }
-                        if ( pvgascent.desiredApoapsis < 0 )
+                        else if ( pvgascent.ascentTargetIdxPublic == ascentTarget.SUBORBITAL )
                         {
-                            GUIStyle s = new GUIStyle(GUI.skin.label);
-                            s.normal.textColor = XKCDColors.Orange;
-                            GUILayout.Label("Hyperbolic target orbit (neg Ap)", s);
+                            GuiUtils.SimpleTextBox("Target Altitude", autopilot.desiredOrbitAltitude, "km");
+                            GuiUtils.SimpleTextBox("Flight Path Angle", pvgascent.flightPathAngle, "º");
+                            GuiUtils.SimpleTextBox("Number of Stages", pvgascent.numStages);
                         }
                     }
                     else
@@ -185,7 +197,7 @@ namespace MuMech
 
                         GuiUtils.SimpleTextBox("Turn start altitude:", gtascent.turnStartAltitude, "km");
                         GuiUtils.SimpleTextBox("Turn start velocity:", gtascent.turnStartVelocity, "m/s");
-                        GuiUtils.SimpleTextBox("Turn start pitch:", gtascent.turnStartPitch, "deg");
+                        GuiUtils.SimpleTextBox("Turn start pitch:", gtascent.turnStartPitch, "º");
                         GuiUtils.SimpleTextBox("Intermediate altitude:", gtascent.intermediateAltitude, "km");
                         GuiUtils.SimpleTextBox("Hold AP Time:", gtascent.holdAPTime, "s");
 

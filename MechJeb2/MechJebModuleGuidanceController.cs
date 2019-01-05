@@ -35,10 +35,6 @@ namespace MuMech
         public PVGStatus status;
         public PVGStatus oldstatus;
 
-        private MechJebModuleStageStats stats { get { return core.GetComputerModule<MechJebModuleStageStats>(); } }
-        private FuelFlowSimulation.Stats[] vacStats { get { return stats.vacStats; } }
-        private FuelFlowSimulation.Stats[] atmoStats { get { return stats.atmoStats; } }
-
         public double last_stage_time = 0.0;
         public double last_optimizer_time = 0.0;
 
@@ -63,6 +59,7 @@ namespace MuMech
             status = PVGStatus.ENABLED;
             core.attitude.users.Add(this);
             core.thrust.users.Add(this);
+            core.stageTracking.users.Add(this);
         }
 
         public override void OnModuleDisabled()
@@ -71,6 +68,7 @@ namespace MuMech
             if (!core.rssMode)
                 core.thrust.ThrustOff();
             core.thrust.users.Remove(this);
+            core.stageTracking.users.Remove(this);
             status = PVGStatus.FINISHED;
             if (p != null)
                 p.KillThread();
@@ -199,9 +197,7 @@ namespace MuMech
             if ( isStaging() )
                 return;
 
-            handle_vacstats(); // must come before handle_staging to mark stages as dropped
-
-            handle_staging();
+            core.stageTracking.Update();
 
             converge();
 
@@ -220,7 +216,7 @@ namespace MuMech
             {
                 PontryaginNode solver = p as PontryaginNode;
                 if (solver == null)
-                    solver = new PontryaginNode(mu: mainBody.gravParameter, r0: vesselState.orbitalPosition, v0: vesselState.orbitalVelocity, pv0: node.GetBurnVector(orbit).normalized, pr0: Vector3d.zero, dV: node.GetBurnVector(orbit).magnitude, bt: burntime);
+                    solver = new PontryaginNode(core: core, mu: mainBody.gravParameter, r0: vesselState.orbitalPosition, v0: vesselState.orbitalVelocity, pv0: node.GetBurnVector(orbit).normalized, pr0: Vector3d.zero, dTguess: burntime);
                 solver.intercept(node.nextPatch);
                 p = solver;
             }
@@ -259,6 +255,7 @@ namespace MuMech
         double old_v0m;
         double old_r0m;
         double old_inc;
+        bool old_omitCoast;
 
         public void TargetPeInsertMatchOrbitPlane(double PeA, double ApA, Orbit o, bool omitCoast)
         {
@@ -271,7 +268,7 @@ namespace MuMech
 
             ConvertToRadVel(PeA, ApA, out r0m, out v0m, out sma);
 
-            if (r0m != old_r0m || v0m != old_v0m)
+            if (r0m != old_r0m || v0m != old_v0m || omitCoast != old_omitCoast)
                 doupdate = true;
 
             if (p == null || doupdate)
@@ -284,7 +281,7 @@ namespace MuMech
                 Vector3d desiredHeadingVector = Math.Sin(desiredHeading * UtilMath.Deg2Rad) * vesselState.east + Math.Cos(desiredHeading * UtilMath.Deg2Rad) * vesselState.north;
                 Vector3d desiredThrustVector = Math.Cos(45 * UtilMath.Deg2Rad) * desiredHeadingVector + Math.Sin(45 * UtilMath.Deg2Rad) * vesselState.up;  /* 45 pitch guess */
                 lambda = desiredThrustVector;
-                PontryaginLaunch solver = new PontryaginLaunch(mu: mainBody.gravParameter, r0: vesselState.orbitalPosition, v0: vesselState.orbitalVelocity, pv0: lambda.normalized, pr0: Vector3d.zero, dV: v0m);
+                PontryaginLaunch solver = new PontryaginLaunch(core: core, mu: mainBody.gravParameter, r0: vesselState.orbitalPosition, v0: vesselState.orbitalVelocity, pv0: lambda.normalized, pr0: Vector3d.zero, dVguess: v0m);
                 solver.omitCoast = omitCoast;
                 Vector3d pos, vel;
                 o.GetOrbitalStateVectorsAtUT(vesselState.time, out pos, out vel);
@@ -297,6 +294,7 @@ namespace MuMech
 
             old_v0m = v0m;
             old_r0m = r0m;
+            old_omitCoast = omitCoast;
         }
 
         public void TargetPeInsertMatchInc(double PeA, double ApA, double inc, bool omitCoast)
@@ -310,9 +308,8 @@ namespace MuMech
 
             ConvertToRadVel(PeA, ApA, out r0m, out v0m, out sma);
 
-            if (r0m != old_r0m || v0m != old_v0m || inc != old_inc)
+            if (r0m != old_r0m || v0m != old_v0m || inc != old_inc || omitCoast != old_omitCoast)
             {
-                //Debug.Log("old settings changed");
                 doupdate = true;
             }
 
@@ -320,18 +317,15 @@ namespace MuMech
             {
                 if (p != null)
                 {
-                    //Debug.Log("killing a thread if its there to kill");
                     p.KillThread();
                 }
 
-                //Debug.Log("mainbody.Radius = " + mainBody.Radius);
-                //Debug.Log("mainbody.gravParameter = " + mainBody.gravParameter);
                 lambdaDot = Vector3d.zero;
                 double desiredHeading = OrbitalManeuverCalculator.HeadingForInclination(inc, vesselState.latitude);
                 Vector3d desiredHeadingVector = Math.Sin(desiredHeading * UtilMath.Deg2Rad) * vesselState.east + Math.Cos(desiredHeading * UtilMath.Deg2Rad) * vesselState.north;
                 Vector3d desiredThrustVector = Math.Cos(45 * UtilMath.Deg2Rad) * desiredHeadingVector + Math.Sin(45 * UtilMath.Deg2Rad) * vesselState.up;  /* 45 pitch guess */
                 lambda = desiredThrustVector;
-                PontryaginLaunch solver = new PontryaginLaunch(mu: mainBody.gravParameter, r0: vesselState.orbitalPosition, v0: vesselState.orbitalVelocity, pv0: lambda.normalized, pr0: Vector3d.zero, dV: v0m);
+                PontryaginLaunch solver = new PontryaginLaunch(core: core, mu: mainBody.gravParameter, r0: vesselState.orbitalPosition, v0: vesselState.orbitalVelocity, pv0: lambda.normalized, pr0: Vector3d.zero, dVguess: v0m);
                 solver.omitCoast = omitCoast;
                 solver.flightangle4constraint(r0m, v0m, 0, inc * UtilMath.Deg2Rad);
                 p = solver;
@@ -340,6 +334,80 @@ namespace MuMech
             old_v0m = v0m;
             old_r0m = r0m;
             old_inc = inc;
+            old_omitCoast = omitCoast;
+        }
+
+        double old_altitude;
+        double old_flightPathAngle;
+        int old_numStages;
+
+        public void TargetSuborbitalMatchOrbitPlane(double altitude, double flightPathAngle, int numStages, Orbit o, bool omitCoast)
+        {
+            if ( status == PVGStatus.ENABLED )
+                return;
+
+            bool doupdate = false;
+
+            if (altitude != old_altitude || old_flightPathAngle != flightPathAngle || numStages != old_numStages || omitCoast != old_omitCoast)
+                doupdate = true;
+
+            if (p == null || doupdate)
+            {
+                if (p != null)
+                    p.KillThread();
+
+                lambdaDot = Vector3d.zero;
+                double desiredHeading = OrbitalManeuverCalculator.HeadingForInclination(o.inclination, vesselState.latitude);
+                Vector3d desiredHeadingVector = Math.Sin(desiredHeading * UtilMath.Deg2Rad) * vesselState.east + Math.Cos(desiredHeading * UtilMath.Deg2Rad) * vesselState.north;
+                Vector3d desiredThrustVector = Math.Cos(45 * UtilMath.Deg2Rad) * desiredHeadingVector + Math.Sin(45 * UtilMath.Deg2Rad) * vesselState.up;  /* 45 pitch guess */
+                lambda = desiredThrustVector;
+                PontryaginLaunch solver = new PontryaginLaunch(core: core, mu: mainBody.gravParameter, r0: vesselState.orbitalPosition, v0: vesselState.orbitalVelocity, pv0: lambda.normalized, pr0: Vector3d.zero);
+                solver.omitCoast = omitCoast;
+                // Vector3d pos, vel;
+                // o.GetOrbitalStateVectorsAtUT(vesselState.time, out pos, out vel);
+                // Vector3d h = Vector3d.Cross(pos.xzy, vel.xzy);
+                // double hTm = v0m * r0m;
+                // solver.suborbital5constraint(altitude, flightPathAngle, numStages, h.normalized * hTm);
+                p = solver;
+            }
+
+            old_altitude = altitude;
+            old_flightPathAngle = flightPathAngle;
+            old_numStages = numStages;
+            old_omitCoast = omitCoast;
+        }
+
+        public void TargetSuborbitalMatchInc(double altitude, double flightPathAngle, int numStages, double inc, bool omitCoast)
+        {
+            if ( status == PVGStatus.ENABLED )
+                return;
+
+            bool doupdate = false;
+
+            if (altitude != old_altitude || old_flightPathAngle != flightPathAngle || numStages != old_numStages || inc != old_inc || omitCoast != old_omitCoast)
+                doupdate = true;
+
+            if (p == null || doupdate)
+            {
+                if (p != null)
+                    p.KillThread();
+
+                lambdaDot = Vector3d.zero;
+                double desiredHeading = OrbitalManeuverCalculator.HeadingForInclination(inc, vesselState.latitude);
+                Vector3d desiredHeadingVector = Math.Sin(desiredHeading * UtilMath.Deg2Rad) * vesselState.east + Math.Cos(desiredHeading * UtilMath.Deg2Rad) * vesselState.north;
+                Vector3d desiredThrustVector = Math.Cos(45 * UtilMath.Deg2Rad) * desiredHeadingVector + Math.Sin(45 * UtilMath.Deg2Rad) * vesselState.up;  /* 45 pitch guess */
+                lambda = desiredThrustVector;
+                PontryaginLaunch solver = new PontryaginLaunch(core: core, mu: mainBody.gravParameter, r0: vesselState.orbitalPosition, v0: vesselState.orbitalVelocity, pv0: lambda.normalized, pr0: Vector3d.zero);
+                solver.omitCoast = omitCoast;
+                solver.suborbital3constraint(altitude, flightPathAngle, numStages, inc * UtilMath.Deg2Rad);
+                p = solver;
+            }
+
+            old_altitude = altitude;
+            old_flightPathAngle = flightPathAngle;
+            old_numStages = numStages;
+            old_inc = inc;
+            old_omitCoast = omitCoast;
         }
 
         /* meta state for consumers that means "is iF usable?" (or pitch/heading) */
@@ -376,57 +444,6 @@ namespace MuMech
         }
 
         private PontryaginBase p;
-
-        private void handle_staging()
-        {
-            if (p == null || p.solution == null)
-                return;
-
-            if (isStaging())
-                return;
-
-            PontryaginBase.Arc current_arc = null;
-
-            int i;
-
-            for(i = 0; i < p.solution.arcs.Count; i++)
-            {
-                current_arc = p.solution.arcs[i];
-
-                if ( ( current_arc.thrust != 0 && current_arc.ksp_stage > StageManager.CurrentStage) || (p.solution.tgo(vesselState.time, i) <= 0) || current_arc.stage.staged )
-                {
-                    current_arc.done = true;
-                }
-                else
-                {
-                    break;
-                }
-            }
-
-            /*
-            if (i == p.solution.arcs.Count && current_arc.thrust == 0)
-            {
-                current_arc.done = true;
-            }
-            */
-        }
-
-        private void handle_vacstats()
-        {
-            if (p == null)
-                return;
-
-            stats.RequestUpdate(this, true);
-
-            List<int>kspstages = new List<int>();
-
-            for ( int i = vacStats.Length-1; i >= 0; i-- )
-                if ( vacStats[i].deltaV > 20 ) // FIXME: tweakable
-                    kspstages.Add(i);
-
-            if (p != null)
-                p.SynchStages(kspstages, vacStats, vesselState.mass, vesselState.thrustCurrent, vesselState.time);
-        }
 
         private void converge()
         {
