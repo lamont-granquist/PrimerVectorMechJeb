@@ -121,8 +121,6 @@ namespace MuMech {
             Vector3d prf = new Vector3d(yT[9], yT[10], yT[11]);
 
             Vector3d n = new Vector3d(0, -1, 0);  /* angular momentum vectors point south in KSP and we're in xzy coords */
-            Vector3d rn = Vector3d.Cross(rf, n);
-            Vector3d vn = Vector3d.Cross(vf, n);
             Vector3d hf = Vector3d.Cross(rf, vf);
 
             z[0] = ( rf.magnitude * rf.magnitude - rTm * rTm ) / 2.0;
